@@ -35,11 +35,8 @@ class SyslogUDPHandler(socketserver.BaseRequestHandler):
     """Listens for syslog messages, extracts info, populates Redis"""
     def handle(self):
         data = bytes.decode(self.request[0].strip())
-        # data = self.request[0].strip()
-        # socket = self.request[1]
-        # print(( "%s : " % self.client_address[0], str(data)))
-        extract_keyvalue(str(data))
-        # logging.info(str(data))
+        if pass_message(data):
+            extract_keyvalue(str(data))
 
 
 def extract_keyvalue(data):
@@ -50,6 +47,14 @@ def extract_keyvalue(data):
     logging.info(file_path)
     logging.info(timestamp)
     R.set(file_path, timestamp)
+
+
+def pass_message(data):
+    """filters for fs_read and fs_write, returns True for those"""
+    list = data.split(',')
+    op_type = list[5]
+    logging.info(op_type)
+    return op_type in ['fs_read_data', 'fs_write_data', 'fs_list_directory']
 
 
 def atime_setter():
@@ -63,7 +68,7 @@ def atime_setter():
             continue
         local_path = NFS_MOUNT + path
         logging.debug(local_path)
-        # get ctime
+        # get atime
         value = R.get(key)
         atime = value.decode('utf-8')
         logging.debug(atime)
