@@ -6,8 +6,6 @@
 mount in the container"""
 
 import logging
-import time
-# import threading
 import socketserver
 import subprocess
 import redis
@@ -22,6 +20,7 @@ UDP_PORT = 1514
 
 # atime setter
 NFS_MOUNT = "/mnt/qumulo"
+BATCH_SIZE = 10
 
 listening = False
 
@@ -60,29 +59,30 @@ def pass_message(data):
 def atime_setter():
     while True:
         sleep(0.1)
-        key = R.randomkey()
-        try:
-            path = key.decode('utf-8')
-        except AttributeError as e:
-            logging.info(e)
-            continue
-        local_path = NFS_MOUNT + path
-        logging.debug(local_path)
-        # get atime
-        value = R.get(key)
-        atime = value.decode('utf-8')
-        logging.debug(atime)
-        try:
-            subprocess.check_call(['touch', '-a', '-d', atime, local_path])
-            # when the above is successful, remove it from redis
-            R.delete(key)
-        except subprocess.CalledProcessError as e:
-            logging.info(e)
-        stuff = R.get(key)
-        try:
-            logging.info("STUFF:" + stuff.decode('utf-8'))
-        except AttributeError as e:
-            logging.info(e)
+        keys = [R.randomkey() for i in range(BATCH_SIZE)]
+        for key in keys:
+            try:
+                path = key.decode('utf-8')
+            except AttributeError as e:
+                logging.info(e)
+                continue
+            local_path = NFS_MOUNT + path
+            logging.debug(local_path)
+            # get atime
+            value = R.get(key)
+            atime = value.decode('utf-8')
+            logging.debug(atime)
+            try:
+                subprocess.check_call(['touch', '-a', '-d', atime, local_path])
+                # when the above is successful, remove it from redis
+                R.delete(key)
+            except subprocess.CalledProcessError as e:
+                logging.info(e)
+            stuff = R.get(key)
+            try:
+                logging.info("STUFF:" + stuff.decode('utf-8'))
+            except AttributeError as e:
+                logging.info(e)
 
 
 if __name__ == "__main__":
