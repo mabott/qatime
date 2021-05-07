@@ -11,7 +11,9 @@ import subprocess
 import redis
 
 from time import sleep
-from multiprocessing import Process
+# Logging is threadsafe but not mp-safe
+from threading import Thread
+# from multiprocessing import Process
 
 # Syslog Message Handler
 LOG_FILE = 'qatime.log'
@@ -70,7 +72,10 @@ def atime_setter():
             logging.debug(local_path)
             # get atime
             value = R.get(key)
-            atime = value.decode('utf-8')
+            try:
+                atime = value.decode('utf-8')
+            except AttributeError as e:
+                logging.info(e)
             logging.debug(atime)
             try:
                 subprocess.check_call(['touch', '-a', '-d', atime, local_path])
@@ -90,12 +95,12 @@ if __name__ == "__main__":
     try:
         # UDP server
         udpServer = socketserver.UDPServer((HOST, UDP_PORT), SyslogUDPHandler)
-        udpThread = Process(target=udpServer.serve_forever)
+        udpThread = Thread(target=udpServer.serve_forever)
         udpThread.daemon = True
         udpThread.start()
 
         # atime setter
-        atimeSetterThread = Process(target=atime_setter)
+        atimeSetterThread = Thread(target=atime_setter)
         atimeSetterThread.daemon = True
         atimeSetterThread.start()
 

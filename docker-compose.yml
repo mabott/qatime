@@ -1,0 +1,28 @@
+version: "3.7"
+
+services:
+
+  qatime:
+    build: .
+    volumes:
+      - type: volume
+        source: qumulo
+        target: /mnt/qumulo
+        volume:
+          nocopy: true
+
+  redis:
+    image: "redis"
+
+  rsyslog:
+    build: rsyslog
+    ports:
+      - "514:514"
+      - "514:514/udp"
+
+volumes:
+  qumulo:
+    driver_opts:
+      type: "nfs"
+      o: "addr=192.168.11.155,hard,intr,rw,tcp,nfsvers=3"
+      device: ":/"
