@@ -26,7 +26,7 @@ BATCH_SIZE = 10
 
 listening = False
 
-logging.basicConfig(level=logging.INFO, format='%(message)s', datefmt='',
+logging.basicConfig(level=logging.DEBUG, format='%(message)s', datefmt='',
                     filename=LOG_FILE, filemode='a')
 
 R = redis.Redis(host='redis')
@@ -61,11 +61,13 @@ def pass_message(data):
 def atime_setter():
     while True:
         sleep(0.1)
-        keys = [R.randomkey() for i in range(BATCH_SIZE)]
+        keys = [R.randomkey()]
+        logging.debug(keys)
         for key in keys:
             try:
                 path = key.decode('utf-8')
             except AttributeError as e:
+                logging.info("atime_setter() got")
                 logging.info(e)
                 continue
             local_path = NFS_MOUNT + path
@@ -75,13 +77,17 @@ def atime_setter():
             try:
                 atime = value.decode('utf-8')
             except AttributeError as e:
+                logging.info("atime_setter() value can't be decoded")
                 logging.info(e)
+                continue
             logging.debug(atime)
             try:
+                logging.info("Attempting to touch " + local_path + " with atime " + atime)
                 subprocess.check_call(['touch', '-a', '-d', atime, local_path])
                 # when the above is successful, remove it from redis
                 R.delete(key)
             except subprocess.CalledProcessError as e:
+                logging.info("Failed to delete a key")
                 logging.info(e)
             stuff = R.get(key)
             try:
