@@ -5,95 +5,102 @@
 2) Set atime using touch on a container-local fs which is actually an NFS bind
 mount in the container"""
 
+import sys
 import logging
 import socketserver
 import subprocess
+import configparser
 import redis
 
 from time import sleep
-# Logging is threadsafe but not mp-safe
 from threading import Thread
-# from multiprocessing import Process
 
-# Syslog Message Handler
-LOG_FILE = 'qatime.log'
-HOST = '0.0.0.0'
-UDP_PORT = 1514
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
-# atime setter
-NFS_MOUNT = "/mnt/qumulo"
-BATCH_SIZE = 10
+log_handler = logging.StreamHandler(sys.stdout)
+log_handler.setLevel(logging.DEBUG)
+log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+log_handler.setFormatter(log_formatter)
+logger.addHandler(log_handler)
+
+config = configparser.ConfigParser()
+config.read('qatime_config.ini')
+LOG_FILE = config['syslog']['LOG_FILE']
+HOST = config['syslog']['HOST']
+UDP_PORT = int(config['syslog']['UDP_PORT'])
+
+NFS_MOUNT = config['atime']['NFS_MOUNT']
+BATCH_SIZE = int(config['atime']['BATCH_SIZE'])
+
+print(LOG_FILE, HOST, UDP_PORT)
+print(NFS_MOUNT, BATCH_SIZE)
 
 listening = False
 
-# logging.basicConfig(level=logging.DEBUG, format='%(message)s', datefmt='',
-#                     filename=LOG_FILE, filemode='a')
-
 R = redis.Redis(host='redis')
 
+ATIME_UPDATES = ['fs_read_data', 'fs_write_data', 'fs_list_directory']
+
+logger.debug("TESTING PRINT STATEMENT")
 
 class SyslogUDPHandler(socketserver.BaseRequestHandler):
     """Listens for syslog messages, extracts info, populates Redis"""
     def handle(self):
         data = bytes.decode(self.request[0].strip())
+        logger.debug(data)
         if pass_message(data):
-            extract_keyvalue(str(data))
+            file_path, timestamp = extract_keyvalue(str(data))
+            logging.debug(file_path)
+            logging.debug(timestamp)
+            R.set(file_path, timestamp)
 
 
 def extract_keyvalue(data):
     list = data.split(',')
     timestamp = list[0]
     file_path = list[8].strip('"')  # if we don't strip quotes redis escapes
-    print(list)
-    print(file_path)
-    print(timestamp)
-    R.set(file_path, timestamp)
+    logger.debug(list)
+    logger.debug(file_path)
+    logger.debug(timestamp)
+    return file_path, timestamp
+    # R.set(file_path, timestamp)
 
 
 def pass_message(data):
     """filters for fs_read and fs_write, returns True for those"""
     list = data.split(',')
     op_type = list[5]
-    print(op_type)
-    return op_type in ['fs_read_data', 'fs_write_data', 'fs_list_directory']
+    logger.debug(op_type)
+    return op_type in ATIME_UPDATES
 
 
 def atime_setter():
     while True:
         sleep(0.1)
         keys = [R.randomkey()]
-        print(keys)
+        # print("Keys: " + str(keys))
         for key in keys:
             try:
                 path = key.decode('utf-8')
             except AttributeError as e:
-                print("atime_setter() got")
-                print(e)
-                continue
+                # print("atime_setter() got")
+                # print(e)
+                break
             local_path = NFS_MOUNT + path
-            print(local_path)
+            logger.debug(local_path)
             # get atime
             value = R.get(key)
+            atime = value.decode('utf-8')
+            logger.debug(atime)
             try:
-                atime = value.decode('utf-8')
-            except AttributeError as e:
-                print("atime_setter() value can't be decoded")
-                print(e)
-                continue
-            print(atime)
-            try:
-                print("Attempting to touch " + local_path + " with atime " + atime)
+                logger.debug("Attempting to touch " + local_path + " with atime " + atime)
                 subprocess.check_call(['touch', '-a', '-d', atime, local_path])
                 # when the above is successful, remove it from redis
                 R.delete(key)
             except subprocess.CalledProcessError as e:
-                print("Failed to delete a key")
-                print(e)
-            stuff = R.get(key)
-            try:
-                print("STUFF:" + stuff.decode('utf-8'))
-            except AttributeError as e:
-                print(e)
+                logger.debug("Failed to delete a key")
+                logger.debug(e)
 
 
 if __name__ == "__main__":
@@ -119,4 +126,4 @@ if __name__ == "__main__":
         listening = False
         udpServer.shutdown()
         udpServer.server_close()
-        print ("Crtl+C Pressed. Shutting down.")
+        logger.info("Crtl+C Pressed. Shutting down.")
