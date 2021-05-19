@@ -100,12 +100,15 @@ class TestIntegration(TestCase):
         RC.fs.create_file(name="testfile", dir_path=TEST_PATH)
         # drop a syslog entry on port 514 localhost that updates atime of the test file
         send_syslog_entry(QAUDIT)
-        # wait for it to be set
+
         # This sleep is stupid, it's something to do with NFS caching, we shouldn't have to wait
         # attempting to disable NFS attribute and lookup caching on the client
-        # on the plus side, a Redis entry that we fail to lookup stays put until the next cycle
+        # on the plus side, a Redis entry that we fail to lookup on the fs stays put until the next cycle
         # I've observed it failing for several seconds repeatedly before the touch -a succeeds
         # it might need to wait long enough to catch the wait period in the atime setter thread??
+
+        # The above might not be relevant now that I've disabled attribute and lookup caching on linux and in container
+        # NOPE this still fails occasionally
         sleep(1)
         # stat the testfile, get atime, sleep and try again if we don't see it yet
         while True:
@@ -113,8 +116,8 @@ class TestIntegration(TestCase):
                 atime = int(os.path.getatime('/mnt/qumulo/test_qatime/testfile')) # We don't need decimal seconds
                 break
             except FileNotFoundError:
-                print('File not found, waiting 5s for retry')
-                sleep(5)
+                print('File not found, waiting 1s for retry')
+                sleep(1)
 
 
         # assert atime matches the previous timestamp
