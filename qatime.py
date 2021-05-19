@@ -33,16 +33,24 @@ UDP_PORT = int(config['syslog']['UDP_PORT'])
 NFS_MOUNT = config['atime']['NFS_MOUNT']
 BATCH_SIZE = int(config['atime']['BATCH_SIZE'])
 
-print(LOG_FILE, HOST, UDP_PORT)
-print(NFS_MOUNT, BATCH_SIZE)
-
 listening = False
 
-R = redis.Redis(host='redis')
+R = None
+try:
+    R = redis.Redis(host='redis')
+except ConnectionRefusedError:
+    # Wait and retry?
+    while True:
+        try:
+            logger.debug("Connection to Redis failed, waiting for retry")
+            sleep(5)
+            R = redis.Redis(host='redis')
+            break
+        except ConnectionRefusedError:
+            continue
+
 
 ATIME_UPDATES = ['fs_read_data', 'fs_write_data', 'fs_list_directory']
-
-logger.debug("TESTING PRINT STATEMENT")
 
 class SyslogUDPHandler(socketserver.BaseRequestHandler):
     """Listens for syslog messages, extracts info, populates Redis"""
@@ -64,7 +72,6 @@ def extract_keyvalue(data):
     logger.debug(file_path)
     logger.debug(timestamp)
     return file_path, timestamp
-    # R.set(file_path, timestamp)
 
 
 def pass_message(data):

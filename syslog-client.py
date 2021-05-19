@@ -54,4 +54,5 @@ if __name__ == "__main__":
     handler = logging.handlers.SysLogHandler(address=(args.address, args.port),
                                              facility=19)
     syslogger.addHandler(handler)
-    syslogger.log(args.message)
+    syslogger.log(level=string_to_level(args.level), msg=args.message)
+    # syslogger.log(args.message)

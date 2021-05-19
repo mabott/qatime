@@ -33,11 +33,23 @@ volumes:
       device: ":/"
 ```
 
-Fire up the containers:
+Mount the qumulo cluster in question as follows:
+
+`$ mkdir -p /mnt/qumulo; mount -t nfs -o tcp,rw,nfsvers=3,hard,intr,noac,lookupcache=none qumulo:/ /mnt/qumulo`
+
+Run the integration test:
+
+`$ nosetests test_qatime.py`
+
+Cleanup any artifacts left by testing.
+
+`$ ./cleanup_tests.sh`
+
+If the above tests worked you should be in business. Fire up the containers:
 
 `$ docker-compose up --build`
 
-Test it out:
+Test it out live:
 
 ```bash
 (qatime) mbott@lol:/mnt/qumulo$ stat Demo | grep Access
@@ -50,6 +62,8 @@ Access: (0775/drwxrwxr-x)  Uid: ( 1000/   mbott)   Gid: ( 1000/   mbott)
 Access: 2021-05-18 01:07:07.722120000 +0000
 (qatime) mbott@lol:/mnt/qumulo$
 ```
+
+Feel free to run `docker-compose up --build -d` to daemonize the service instead of letting it log to your console.
 
 ## Known Issues
 
