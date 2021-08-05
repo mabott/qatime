@@ -8,7 +8,7 @@ import logging.handlers
 import time
 
 from time import sleep
-from unittest import TestCase
+from unittest import TestCase, main
 from qumulo.rest_client import RestClient
 
 config = configparser.ConfigParser()
@@ -32,32 +32,32 @@ QAUDIT = '2021-05-18T21:41:55.861195Z qumulo-1 qumulo 192.168.240.1,"admin",smb2
 
 
 class TestMethods(TestCase):
-    def test_list_directory_passes(self):
+    def test_list_directory_passes(self) -> None:
         result = qatime.pass_message(FS_LIST_DIRECTORY)
         self.assertTrue(result)
 
-    def test_read_data_passes(self):
+    def test_read_data_passes(self) -> None:
         result = qatime.pass_message(FS_READ_DATA)
         self.assertTrue(result)
 
-    def test_write_data_passes(self):
+    def test_write_data_passes(self) -> None:
         result = qatime.pass_message(FS_WRITE_DATA)
         self.assertTrue(result)
 
-    def test_read_metadata_filtered(self):
+    def test_read_metadata_filtered(self) -> None:
         result = qatime.pass_message(FS_READ_METADATA)
         self.assertFalse(result)
 
-    def test_write_metadata_filtered(self):
+    def test_write_metadata_filtered(self) -> None:
         result = qatime.pass_message(FS_WRITE_METADATA)
         self.assertFalse(result)
 
-    def test_create_file_filtered(self):
+    def test_create_file_filtered(self) -> None:
         """no need to reset atime here as it's always initialized to create_time"""
         result = qatime.pass_message(FS_CREATE_FILE)
         self.assertFalse(result)
 
-    def test_extract_keyvalue(self):
+    def test_extract_keyvalue(self) -> None:
         target_file_path = "/Demo/"
         target_timestamp = "2021-05-18T00:02:22.357726Z"
         file_path, timestamp = qatime.extract_keyvalue(FS_LIST_DIRECTORY)
@@ -69,7 +69,7 @@ RC = RestClient(address="qumulo", port=8000)
 RC.login(username=QLOGIN, password=QPASS)
 
 
-def send_syslog_entry(data):
+def send_syslog_entry(data: str) -> None:
     syslogger = logging.getLogger("TestSysLogger")
     syslogger.setLevel(logging.DEBUG)
     handler = logging.handlers.SysLogHandler(address=("localhost", 514), facility=19)
@@ -77,7 +77,7 @@ def send_syslog_entry(data):
     syslogger.log(level=logging.DEBUG, msg=data)
 
 
-def timestamp_to_epoch_utc(timestamp):
+def timestamp_to_epoch_utc(timestamp: str) -> int:
     fmt = "%Y-%m-%dT%H:%M:%S.%fZ"
     epoch = int(time.mktime(time.strptime(timestamp, fmt)))
     return epoch
@@ -98,7 +98,7 @@ class TestIntegration(TestCase):
         # leave the containers up for now so we can look at their state in a test failure
         pass
 
-    def test_atime_update_e2e(self):
+    def test_atime_update_e2e(self) -> None:
         """make a testfile, drop a syslog entry that updates atime on the testfile, stat file and compare"""
         # create the test directory and a file in there
         RC.fs.create_directory(name=TEST_PATH.strip("/"), dir_path="/")
@@ -128,3 +128,7 @@ class TestIntegration(TestCase):
 
         # assert atime matches the previous timestamp
         self.assertEqual(timestamp_to_epoch_utc("2021-05-18T21:41:55.861195Z"), atime)
+
+
+if __name__ == "__main__":
+    main()
