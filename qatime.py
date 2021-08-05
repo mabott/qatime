@@ -20,40 +20,42 @@ logger.setLevel(logging.DEBUG)
 
 log_handler = logging.StreamHandler(sys.stdout)
 log_handler.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 log_handler.setFormatter(log_formatter)
 logger.addHandler(log_handler)
 
 config = configparser.ConfigParser()
-config.read('qatime_config.ini')
-LOG_FILE = config['syslog']['LOG_FILE']
-HOST = config['syslog']['HOST']
-UDP_PORT = int(config['syslog']['UDP_PORT'])
+config.read("qatime_config.ini")
+LOG_FILE = config["syslog"]["LOG_FILE"]
+HOST = config["syslog"]["HOST"]
+UDP_PORT = int(config["syslog"]["UDP_PORT"])
 
-NFS_MOUNT = config['atime']['NFS_MOUNT']
-BATCH_SIZE = int(config['atime']['BATCH_SIZE'])
+NFS_MOUNT = config["atime"]["NFS_MOUNT"]
+BATCH_SIZE = int(config["atime"]["BATCH_SIZE"])
 
 listening = False
 
 R = None
 try:
-    R = redis.Redis(host='redis')
+    R = redis.Redis(host="redis")
 except ConnectionRefusedError:
     # Wait and retry?
     while True:
         try:
             logger.debug("Connection to Redis failed, waiting for retry")
             sleep(5)
-            R = redis.Redis(host='redis')
+            R = redis.Redis(host="redis")
             break
         except ConnectionRefusedError:
             continue
 
 
-ATIME_UPDATES = ['fs_read_data', 'fs_write_data', 'fs_list_directory']
+ATIME_UPDATES = ["fs_read_data", "fs_write_data", "fs_list_directory"]
+
 
 class SyslogUDPHandler(socketserver.BaseRequestHandler):
     """Listens for syslog messages, extracts info, populates Redis"""
+
     def handle(self):
         data = bytes.decode(self.request[0].strip())
         logger.debug(data)
@@ -65,7 +67,7 @@ class SyslogUDPHandler(socketserver.BaseRequestHandler):
 
 
 def extract_keyvalue(data):
-    list = data.split(',')
+    list = data.split(",")
     timestamp = list[0]
     file_path = list[8].strip('"')  # if we don't strip quotes redis escapes
     logger.debug(list)
@@ -76,7 +78,7 @@ def extract_keyvalue(data):
 
 def pass_message(data):
     """filters for fs_read and fs_write, returns True for those"""
-    list = data.split(',')
+    list = data.split(",")
     op_type = list[5]
     logger.debug(op_type)
     return op_type in ATIME_UPDATES
@@ -89,7 +91,7 @@ def atime_setter():
         # print("Keys: " + str(keys))
         for key in keys:
             try:
-                path = key.decode('utf-8')
+                path = key.decode("utf-8")
             except AttributeError as e:
                 # print("atime_setter() got")
                 # print(e)
@@ -98,11 +100,13 @@ def atime_setter():
             logger.debug(local_path)
             # get atime
             value = R.get(key)
-            atime = value.decode('utf-8')
+            atime = value.decode("utf-8")
             logger.debug(atime)
             try:
-                logger.debug("Attempting to touch " + local_path + " with atime " + atime)
-                subprocess.check_call(['touch', '-a', '-d', atime, local_path])
+                logger.debug(
+                    "Attempting to touch " + local_path + " with atime " + atime
+                )
+                subprocess.check_call(["touch", "-a", "-d", atime, local_path])
                 # when the above is successful, remove it from redis
                 R.delete(key)
             except subprocess.CalledProcessError as e:
