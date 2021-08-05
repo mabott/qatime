@@ -6,11 +6,11 @@ import time
 
 import qatime
 
-from datetime import datetime, timezone
 from time import sleep
 from typing import Sequence
 from unittest import TestCase, main
 
+from dateutil.parser import isoparse
 from qatime_config import load_config
 from qumulo.rest_client import RestClient
 
@@ -75,11 +75,9 @@ class TestIntegration(TestCase):
 
     def setUp(self) -> None:
         config = load_config()
-        self.client = RestClient(address=config.rest.address, port=config.rest.port)
-        self.client.login(username=config.rest.username, password=config.rest.password)
+        self.client = config.rest.make_client()
         self.remote_path = config.test.base_path
         self.test_folder = config.test.folder_name
-        self.local_path = config.atime.nfs_mount
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -97,11 +95,6 @@ class TestIntegration(TestCase):
         syslogger.addHandler(handler)
         syslogger.log(level=logging.DEBUG, msg=msg)
 
-    @staticmethod
-    def epoch_to_datetime_utc(epoch: float) -> str:
-        dt = datetime.fromtimestamp(epoch, timezone.utc)
-        return f"{dt:%Y-%m-%dT%H:%M:%S.%fZ}"
-
     def test_atime_update_e2e(self) -> None:
         # create the test directory and a file via the REST API
         self.client.fs.create_directory(
@@ -111,33 +104,17 @@ class TestIntegration(TestCase):
         self.client.fs.create_file(dir_path=dir_path, name="testfile")
         remote_path = os.path.join(self.remote_path, self.test_folder, "testfile")
 
-        # resolve those files to the locally mounted NFS location
-        local_path = os.path.join(self.local_path, self.test_folder, "testfile")
-
         # drop a syslog entry on port 514 localhost. this should get picked up
         # by the container and update the atime of the test file
-        expected_atime = "2021-05-18T21:41:55.861195Z"
+        timestamp = "2040-01-01T21:41:55.861195Z"
         self.send_syslog_entry(
-            f'{expected_atime} qumulo-1 qumulo 192.168.240.1,"admin",smb2,fs_read_data,ok,6,"{remote_path}",""'
+            f'{timestamp} qumulo-1 qumulo 192.168.240.1,"admin",smb2,fs_read_data,ok,6,"{remote_path}",""'
         )
 
-        # This sleep is stupid, it's something to do with NFS caching, we shouldn't have to wait
-        # attempting to disable NFS attribute and lookup caching on the client
-        # on the plus side, a Redis entry that we fail to lookup on the fs stays put until the next cycle
-        # I've observed it failing for several seconds repeatedly before the touch -a succeeds
-        # it might need to wait long enough to catch the wait period in the atime setter thread??
-
-        # The above might not be relevant now that I've disabled attribute and lookup caching on linux and in container
-        # NOPE this still fails occasionally
+        expected_atime = isoparse(timestamp)
         sleep(1)
-        # stat the testfile, get atime, sleep and try again if we don't see it yet
-        while True:
-            try:
-                atime = os.path.getatime(local_path)
-                break
-            except FileNotFoundError:
-                print("File not found, waiting 1s for retry")
-                sleep(1)
+        attrs = self.client.fs.get_file_attr(path=remote_path)
+        actual_atime = isoparse(attrs["access_time"])
 
         if KEEP:
             print("Skipping test file removal")
@@ -145,7 +122,7 @@ class TestIntegration(TestCase):
             self.client.fs.delete(path=remote_path)
             self.client.fs.delete(path=dir_path)
 
-        actual_atime = self.epoch_to_datetime_utc(atime)
+        print(expected_atime, actual_atime)
         self.assertEqual(expected_atime, actual_atime)
 
 

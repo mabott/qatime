@@ -1,18 +1,13 @@
 import configparser
 from dataclasses import dataclass
+from qumulo.rest_client import RestClient
 
 
 @dataclass(frozen=True)
 class SyslogConfig:
     log_file: str
     host: str
-    udp_port: int
-
-
-@dataclass(frozen=True)
-class AtimeConfig:
-    nfs_mount: str
-    batch_size: int
+    port: int
 
 
 @dataclass(frozen=True)
@@ -21,6 +16,11 @@ class RestConfig:
     port: int
     username: str
     password: str
+
+    def make_client(self) -> RestClient:
+        client = RestClient(address=self.address, port=self.port)
+        client.login(username=self.username, password=self.password)
+        return client
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,6 @@ class TestConfig:
 @dataclass(frozen=True)
 class Config:
     syslog: SyslogConfig
-    atime: AtimeConfig
     rest: RestConfig
     test: TestConfig
 
@@ -44,11 +43,7 @@ def load_config(filename: str = "qatime_config.ini") -> Config:
     syslog = SyslogConfig(
         log_file=config["syslog"]["LOG_FILE"],
         host=config["syslog"]["HOST"],
-        udp_port=int(config["syslog"]["UDP_PORT"]),
-    )
-    atime = AtimeConfig(
-        nfs_mount=config["atime"]["NFS_MOUNT"],
-        batch_size=int(config["atime"]["BATCH_SIZE"]),
+        port=int(config["syslog"]["UDP_PORT"]),
     )
     rest = RestConfig(
         address=config["qumulo"]["QADDRESS"],
@@ -63,7 +58,6 @@ def load_config(filename: str = "qatime_config.ini") -> Config:
 
     return Config(
         syslog=syslog,
-        atime=atime,
         rest=rest,
         test=test,
     )

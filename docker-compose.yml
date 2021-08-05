@@ -1,28 +1,17 @@
 version: "3.7"
 
 services:
-
   qatime:
     build: .
-    volumes:
-      - type: volume
-        source: qumulo
-        target: /mnt/qumulo
-        volume:
-          nocopy: true
+    ports:
+      # Forwarding for the Qumulo REST API port
+      - "8000:8000"
 
   redis:
-    image: "redis"
+    image: redis
 
   rsyslog:
     build: rsyslog
     ports:
       - "514:514"
       - "514:514/udp"
-
-volumes:
-  qumulo:
-    driver_opts:
-      type: "nfs"
-      o: "addr=192.168.240.130,hard,intr,rw,tcp,nfsvers=3,noac,lookupcache=none"
-      device: ":/"
