@@ -16,17 +16,10 @@ from time import sleep
 from threading import Thread
 from typing import Tuple
 
+from qatime_config import load_config
+from qumulo.rest_client import RestClient
+
 logger = logging.getLogger()
-
-config = configparser.ConfigParser()
-config.read("qatime_config.ini")
-LOG_FILE = config["syslog"]["LOG_FILE"]
-HOST = config["syslog"]["HOST"]
-UDP_PORT = int(config["syslog"]["UDP_PORT"])
-
-NFS_MOUNT = config["atime"]["NFS_MOUNT"]
-BATCH_SIZE = int(config["atime"]["BATCH_SIZE"])
-
 listening = False
 
 
@@ -52,7 +45,25 @@ def connect_to_redis() -> "redis.Redis[bytes]":
 R = connect_to_redis()
 
 
-ATIME_UPDATES = ["fs_read_data", "fs_write_data", "fs_list_directory"]
+ATIME_UPDATES = {"fs_read_data", "fs_write_data", "fs_list_directory"}
+
+
+def pass_message(data: str) -> bool:
+    """Filters for fs_read and fs_write"""
+    fields = data.split(",")
+    op_type = fields[5]
+    should_pass = op_type in ATIME_UPDATES
+    logger.debug("op_type: %s (%s)", op_type, should_pass)
+    return should_pass
+
+
+def extract_keyvalue(data: str) -> Tuple[str, str]:
+    fields = data.split(",")
+    timestamp = fields[0]
+    # if we don't strip quotes redis escapes
+    file_path = fields[8].strip('"')
+    logger.debug("file path: %s, timestamp: %s", file_path, timestamp)
+    return file_path, timestamp
 
 
 class SyslogUDPHandler(socketserver.BaseRequestHandler):
@@ -60,61 +71,38 @@ class SyslogUDPHandler(socketserver.BaseRequestHandler):
 
     def handle(self) -> None:
         data = bytes.decode(self.request[0].strip())
-        logger.debug(data)
+        logger.debug("message: %s", data)
         if pass_message(data):
-            file_path, timestamp = extract_keyvalue(str(data))
-            logging.debug(file_path)
-            logging.debug(timestamp)
+            file_path, timestamp = extract_keyvalue(data)
             R.set(file_path, timestamp)
 
 
-def extract_keyvalue(data: str) -> Tuple[str, str]:
-    list = data.split(",")
-    timestamp = list[0]
-    file_path = list[8].strip('"')  # if we don't strip quotes redis escapes
-    logger.debug(list)
-    logger.debug(file_path)
-    logger.debug(timestamp)
-    return file_path, timestamp
-
-
-def pass_message(data: str) -> bool:
-    """filters for fs_read and fs_write, returns True for those"""
-    list = data.split(",")
-    op_type = list[5]
-    logger.debug(op_type)
-    return op_type in ATIME_UPDATES
-
-
-def atime_setter() -> None:
+def atime_setter(client: RestClient) -> None:
     while True:
         sleep(0.1)
-        keys = [R.randomkey()]  # type: ignore[no-untyped-call]
-        # print("Keys: " + str(keys))
+        try:
+            keys = [R.randomkey()]  # type: ignore[no-untyped-call]
+        except ConnectionRefusedError:
+            continue
+
         for key in keys:
             try:
                 path = key.decode("utf-8")
             except AttributeError as e:
-                # print("atime_setter() got")
-                # print(e)
                 break
-            local_path = NFS_MOUNT + path
-            logger.debug(local_path)
             # get atime
             value = R.get(key)
             assert value is not None
             atime = value.decode("utf-8")
-            logger.debug(atime)
+            logger.debug("Setting atime on '%s' to '%s'", path, atime)
             try:
-                logger.debug(
-                    "Attempting to touch " + local_path + " with atime " + atime
-                )
-                subprocess.check_call(["touch", "-a", "-d", atime, local_path])
+                client.fs.set_file_attr(path=path, access_time=atime)
+            except Exception as e:
+                logger.debug("Failed to set atime: %s", e)
+            else:
                 # when the above is successful, remove it from redis
+                logger.debug("Set atime")
                 R.delete(key)
-            except subprocess.CalledProcessError as e:
-                logger.debug("Failed to delete a key")
-                logger.debug(e)
 
 
 def main() -> None:
@@ -126,18 +114,22 @@ def main() -> None:
     log_handler.setFormatter(log_formatter)
     logger.addHandler(log_handler)
 
+    config = load_config()
+    client = config.rest.make_client()
+    syslog_addr = (config.syslog.host, config.syslog.port)
+
     listening = True
     try:
         # UDP server
-        udpServer = socketserver.UDPServer((HOST, UDP_PORT), SyslogUDPHandler)
-        udpThread = Thread(target=udpServer.serve_forever)
-        udpThread.daemon = True
-        udpThread.start()
+        udp_server = socketserver.UDPServer(syslog_addr, SyslogUDPHandler)
+        udp_thread = Thread(target=udp_server.serve_forever)
+        udp_thread.daemon = True
+        udp_thread.start()
 
         # atime setter
-        atimeSetterThread = Thread(target=atime_setter)
-        atimeSetterThread.daemon = True
-        atimeSetterThread.start()
+        atime_setter_thread = Thread(target=atime_setter, args=[client])
+        atime_setter_thread.daemon = True
+        atime_setter_thread.start()
 
         while True:
             sleep(1)
@@ -146,8 +138,8 @@ def main() -> None:
         raise
     except KeyboardInterrupt:
         listening = False
-        udpServer.shutdown()
-        udpServer.server_close()
+        udp_server.shutdown()
+        udp_server.server_close()
         logger.info("Crtl+C Pressed. Shutting down.")
 
 
