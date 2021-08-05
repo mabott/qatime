@@ -14,15 +14,9 @@ import redis
 
 from time import sleep
 from threading import Thread
+from typing import Tuple
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-
-log_handler = logging.StreamHandler(sys.stdout)
-log_handler.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-log_handler.setFormatter(log_formatter)
-logger.addHandler(log_handler)
 
 config = configparser.ConfigParser()
 config.read("qatime_config.ini")
@@ -35,19 +29,27 @@ BATCH_SIZE = int(config["atime"]["BATCH_SIZE"])
 
 listening = False
 
-R = None
-try:
-    R = redis.Redis(host="redis")
-except ConnectionRefusedError:
-    # Wait and retry?
-    while True:
-        try:
-            logger.debug("Connection to Redis failed, waiting for retry")
-            sleep(5)
-            R = redis.Redis(host="redis")
-            break
-        except ConnectionRefusedError:
-            continue
+
+def connect_to_redis() -> redis.Redis[bytes]:
+    r = None
+    try:
+        r = redis.Redis(host="redis")
+    except ConnectionRefusedError:
+        # Wait and retry?
+        while True:
+            try:
+                logger.debug("Connection to Redis failed, waiting for retry")
+                sleep(5)
+                r = redis.Redis(host="redis")
+                break
+            except ConnectionRefusedError:
+                continue
+
+    assert r is not None
+    return r
+
+
+R = connect_to_redis()
 
 
 ATIME_UPDATES = ["fs_read_data", "fs_write_data", "fs_list_directory"]
@@ -56,7 +58,7 @@ ATIME_UPDATES = ["fs_read_data", "fs_write_data", "fs_list_directory"]
 class SyslogUDPHandler(socketserver.BaseRequestHandler):
     """Listens for syslog messages, extracts info, populates Redis"""
 
-    def handle(self):
+    def handle(self) -> None:
         data = bytes.decode(self.request[0].strip())
         logger.debug(data)
         if pass_message(data):
@@ -66,7 +68,7 @@ class SyslogUDPHandler(socketserver.BaseRequestHandler):
             R.set(file_path, timestamp)
 
 
-def extract_keyvalue(data):
+def extract_keyvalue(data: str) -> Tuple[str, str]:
     list = data.split(",")
     timestamp = list[0]
     file_path = list[8].strip('"')  # if we don't strip quotes redis escapes
@@ -76,7 +78,7 @@ def extract_keyvalue(data):
     return file_path, timestamp
 
 
-def pass_message(data):
+def pass_message(data: str) -> bool:
     """filters for fs_read and fs_write, returns True for those"""
     list = data.split(",")
     op_type = list[5]
@@ -84,10 +86,10 @@ def pass_message(data):
     return op_type in ATIME_UPDATES
 
 
-def atime_setter():
+def atime_setter() -> None:
     while True:
         sleep(0.1)
-        keys = [R.randomkey()]
+        keys = [R.randomkey()]  # type: ignore[no-untyped-call]
         # print("Keys: " + str(keys))
         for key in keys:
             try:
@@ -100,6 +102,7 @@ def atime_setter():
             logger.debug(local_path)
             # get atime
             value = R.get(key)
+            assert value is not None
             atime = value.decode("utf-8")
             logger.debug(atime)
             try:
@@ -114,7 +117,15 @@ def atime_setter():
                 logger.debug(e)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    logger.setLevel(logging.DEBUG)
+
+    log_handler = logging.StreamHandler(sys.stdout)
+    log_handler.setLevel(logging.DEBUG)
+    log_formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    log_handler.setFormatter(log_formatter)
+    logger.addHandler(log_handler)
+
     listening = True
     try:
         # UDP server
@@ -138,3 +149,7 @@ if __name__ == "__main__":
         udpServer.shutdown()
         udpServer.server_close()
         logger.info("Crtl+C Pressed. Shutting down.")
+
+
+if __name__ == "__main__":
+    main()
