@@ -1,2 +1,3 @@
 qumulo-api==4.2.0
 redis==3.5.3
+dataclasses==0.6

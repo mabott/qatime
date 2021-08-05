@@ -2,7 +2,7 @@
 
 A small widget for maintaining atime metadata on a Qumulo cluster.
 
-Depends on `redis` and `rsyslog`, but the included `docker-compose.yml` can build the appropriate 
+Depends on `redis` and `rsyslog`, but the included `docker-compose.yml` can build the appropriate
 containers and wire them together properly. Rsyslog needs to listen for Audit messages coming from
 Qumulo, and the qatime container needs an NFS mount to the Qumulo cluster with admin-level permissions.
 
@@ -17,37 +17,52 @@ events and set the atime appropriately.
 
 Pull the code from this repo:
 
-`$ git clone https://github.com/mabott/qatime.git`
+```shell
+git clone https://github.com/mabott/qatime.git
+```
 
-This should not be necessary in most cases, but if it is edit `qatime_config.ini` to match your 
-environment.
+Set up the configuration for your environment by copying the example configuration and edit it:
 
-Update docker-compose.yml to reflect the correct address of one node of your Qumulo cluster:
+```shell
+cp "qatime_config_example.ini" "qatime_config.ini"
+```
+
+Update `docker-compose.yml` to reflect the correct address of one node of your Qumulo cluster:
 
 ```yml
 volumes:
   qumulo:
+    driver: local
     driver_opts:
-      type: "nfs"
-      o: "addr=**192.168.240.130**,hard,intr,rw,tcp,nfsvers=3"
+      type: nfs
+      o: "addr=***,nfsvers=3,tcp,nolock,rw,hard,noac,lookupcache=none"
       device: ":/"
 ```
 
-Mount the qumulo cluster in question as follows:
+Mount the Qumulo cluster to the path you specified in the configuration, for the example one this is:
 
-`$ mkdir -p /mnt/qumulo; mount -t nfs -o tcp,rw,nfsvers=3,hard,intr,noac,lookupcache=none qumulo:/ /mnt/qumulo`
+```
+$ sudo mkdir -p /mnt/qumulo
+$ sudo mount -t nfs -o tcp,rw,nfsvers=3,hard,intr,noac,lookupcache=none qumulo:/ /mnt/qumulo
+```
 
 Run the integration test:
 
-`$ nosetests test_qatime.py`
+```
+$ python test_qatime.py
+```
 
-Cleanup any artifacts left by testing.
+By default, this will clean up all files. Set the env var `KEEP` to disable this:
 
-`$ ./cleanup_tests.sh`
+```
+$ env KEEP=1 python3 test_qatime.py
+```
 
 If the above tests worked you should be in business. Fire up the containers:
 
-`$ docker-compose up --build`
+```
+$ docker-compose up --build
+```
 
 Test it out live:
 
@@ -69,9 +84,9 @@ Feel free to run `docker-compose up --build -d` to daemonize the service instead
 
 1. Redis might not be necessary anymore. The original intent was to use Redis as a database of paths
 and atime results. Currently it's only used as a cache.
-   
+
 1. This has not been adequately tested against interesting characters or character sets in the
 path names that get sent by Qumulo Audit.
-   
+
 1. This needs more testing, particularly e2e testing to validate the whole environment. It's unlikely
 that `redis` or `rsyslog` break with updates, given their stability, but you never know.

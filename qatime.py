@@ -30,7 +30,7 @@ BATCH_SIZE = int(config["atime"]["BATCH_SIZE"])
 listening = False
 
 
-def connect_to_redis() -> redis.Redis[bytes]:
+def connect_to_redis() -> "redis.Redis[bytes]":
     r = None
     try:
         r = redis.Redis(host="redis")
